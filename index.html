@@ -56,18 +56,19 @@
     let currentMonth = today.getMonth();
     let currentYear = today.getFullYear();
     let data = {};
-    let tokenClient;
     let accessToken = null;
     let spreadsheetId = null;
 
-    function initGoogleAuth() {
-      tokenClient = google.accounts.oauth2.initTokenClient({
+    function initAuth() {
+      console.log('Initializing auth...');
+      const tokenClient = google.accounts.oauth2.initTokenClient({
         client_id: CLIENT_ID,
         scope: SCOPES,
         callback: (tokenResponse) => {
+          console.log('Token callback triggered:', tokenResponse);
           if (tokenResponse.error) {
             document.getElementById('authStatus').innerText = `Ошибка авторизации: ${tokenResponse.error_description || tokenResponse.error}`;
-            console.error('Token error:', tokenResponse);
+            console.error('Auth error:', tokenResponse);
             return;
           }
           accessToken = tokenResponse.access_token;
@@ -75,48 +76,59 @@
           document.getElementById('signInButton').classList.add('hidden');
           document.getElementById('signOutButton').classList.remove('hidden');
           document.getElementById('authStatus').innerText = '';
-          initGapiClient();
+          initGapi();
         }
       });
-      document.getElementById('signInButton').onclick = () => tokenClient.requestAccessToken({ prompt: 'consent' });
+      document.getElementById('signInButton').onclick = () => {
+        console.log('Requesting access token...');
+        tokenClient.requestAccessToken({ prompt: 'consent' });
+      };
       document.getElementById('signOutButton').onclick = () => {
-        google.accounts.oauth2.revoke(accessToken);
-        accessToken = null;
-        document.getElementById('signInButton').classList.remove('hidden');
-        document.getElementById('signOutButton').classList.add('hidden');
-        document.getElementById('calendar').innerHTML = 'Пожалуйста, войдите через Google.';
+        console.log('Signing out...');
+        google.accounts.oauth2.revoke(accessToken, () => {
+          accessToken = null;
+          document.getElementById('signInButton').classList.remove('hidden');
+          document.getElementById('signOutButton').classList.add('hidden');
+          document.getElementById('calendar').innerHTML = 'Пожалуйста, войдите через Google.';
+        });
       };
     }
 
-    function initGapiClient() {
+    function initGapi() {
       if (!accessToken) {
-        document.getElementById('authStatus').innerText = 'Токен авторизации отсутствует. Повторите вход.';
+        document.getElementById('authStatus').innerText = 'Токен отсутствует. Повторите вход.';
+        console.error('No access token');
         return;
       }
+      console.log('Loading GAPI client...');
       gapi.load('client', () => {
+        console.log('Initializing GAPI...');
         gapi.client.init({
+          apiKey: '', // Оставляем пустым, используем access_token
           discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
-          access_token: accessToken,
         }).then(() => {
-          console.log('GAPI initialized successfully');
+          console.log('GAPI initialized, setting token:', accessToken);
+          gapi.client.setToken({ access_token: accessToken });
           createSpreadsheet();
         }).catch(err => {
           document.getElementById('authStatus').innerText = `Ошибка инициализации API: ${err.message}`;
-          console.error('GAPI error:', err);
+          console.error('GAPI init error:', err);
         });
       });
     }
 
     function createSpreadsheet() {
       if (!accessToken) {
-        document.getElementById('authStatus').innerText = 'Отсутствует токен для создания таблицы. Повторите вход.';
+        document.getElementById('authStatus').innerText = 'Токен отсутствует для создания таблицы.';
+        console.error('No token for spreadsheet creation');
         return;
       }
+      console.log('Creating spreadsheet...');
       gapi.client.sheets.spreadsheets.create({
         properties: { title: 'Activity Tracker ' + new Date().toLocaleDateString() }
       }).then(response => {
         spreadsheetId = response.result.spreadsheetId;
-        console.log('Created Spreadsheet ID:', spreadsheetId);
+        console.log('Spreadsheet created, ID:', spreadsheetId);
         const headers = ['Date', ...activities.map(a => a.name)];
         gapi.client.sheets.spreadsheets.values.update({
           spreadsheetId: spreadsheetId,
@@ -126,15 +138,17 @@
         }).then(() => loadData());
       }).catch(err => {
         document.getElementById('authStatus').innerText = `Ошибка создания таблицы: ${JSON.stringify(err, null, 2)}`;
-        console.error('Create Spreadsheet error:', err);
+        console.error('Spreadsheet creation error:', err);
       });
     }
 
     function loadData() {
       if (!spreadsheetId) {
-        document.getElementById('authStatus').innerText = 'Таблица не создана. Попробуйте снова.';
+        document.getElementById('authStatus').innerText = 'Таблица не создана.';
+        console.error('No spreadsheet ID');
         return;
       }
+      console.log('Loading data from spreadsheet:', spreadsheetId);
       gapi.client.sheets.spreadsheets.values.get({
         spreadsheetId: spreadsheetId,
         range: 'Sheet1!A2:Z1000'
@@ -150,6 +164,7 @@
         generateCalendar();
       }).catch(err => {
         document.getElementById('authStatus').innerText = `Ошибка загрузки данных: ${err.message}`;
+        console.error('Data load error:', err);
       });
     }
 
@@ -167,6 +182,7 @@
         resource: { values: [row] }
       }).then(() => updateStats()).catch(err => {
         document.getElementById('authStatus').innerText = `Ошибка сохранения: ${err.message}`;
+        console.error('Save error:', err);
       });
     }
 
@@ -221,7 +237,6 @@
         categories[a.category].push(index);
       });
 
-      // Weekly stats
       const firstDay = new Date(currentYear, currentMonth, 1);
       const lastDay = new Date(currentYear, currentMonth + 1, 0);
       const daysInMonth = lastDay.getDate();
@@ -254,7 +269,6 @@
         }
       });
 
-      // Monthly stats
       const monthlyData = {};
       for (let cat in categories) {
         monthlyData[cat] = 0;
@@ -271,7 +285,6 @@
         monthlyData[cat] /= categories[cat].length || 1;
       }
 
-      // Weekly Chart
       const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
       new Chart(weeklyCtx, {
         type: 'bar',
@@ -291,7 +304,6 @@
         }
       });
 
-      // Monthly Chart
       const monthlyCtx = document.getElementById('monthlyChart').getContext('2d');
       new Chart(monthlyCtx, {
         type: 'bar',
@@ -342,9 +354,13 @@
     }
 
     window.onload = () => {
+      console.log('Window loaded, loading GAPI...');
       const script = document.createElement('script');
       script.src = 'https://apis.google.com/js/api.js';
-      script.onload = initGoogleAuth;
+      script.onload = () => {
+        console.log('GAPI script loaded, initializing auth...');
+        initAuth();
+      };
       document.body.appendChild(script);
     };
   </script>
