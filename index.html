@@ -6,15 +6,14 @@
   <title>Трекер активностей</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.min.js"></script>
-  <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js"></script>
 </head>
 <body class="bg-gray-900 text-white font-sans">
   <div class="container mx-auto p-4">
     <h1 class="text-2xl font-bold text-center mb-4">Трекер активностей</h1>
     <div id="auth" class="mb-4">
-      <button id="signInButton" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Войти через Google</button>
-      <button id="signOutButton" class="bg-red-600 hover:bg-red-700 text-white px-4 py-2 rounded hidden">Выйти</button>
-      <div id="authStatus" class="text-red-400 mt-2"></div>
+      <div id="authStatus" class="text-green-400 mt-2">Онлайн-режим активен</div>
     </div>
     <div class="overflow-x-auto">
       <div id="calendar" class="bg-gray-800 p-4 rounded shadow"></div>
@@ -27,8 +26,20 @@
   </div>
 
   <script>
-    const CLIENT_ID = '328722452763-hlchkpo5etq87qqa56ivn6ie0l51mgb1.apps.googleusercontent.com';
-    const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+    // Твоя конфигурация из Firebase Console
+    const firebaseConfig = {
+      apiKey: "AIzaSyCEIcUzUcKwWs8I-oNV3AcAPcr8-mH1Xy4",
+      authDomain: "activity-tracker-2c160.firebaseapp.com",
+      databaseURL: "https://activity-tracker-2c160-default-rtdb.firebaseio.com",
+      projectId: "activity-tracker-2c160",
+      storageBucket: "activity-tracker-2c160.firebasestorage.app",
+      messagingSenderId: "484608366425",
+      appId: "1:484608366425:web:832c822adb5ff2c5291e48"
+    };
+
+    // Инициализация Firebase
+    firebase.initializeApp(firebaseConfig);
+    const database = firebase.database();
 
     const activities = [
       { name: "Холодный душ по методу Вима Хофа", category: "Здоровье" },
@@ -56,115 +67,16 @@
     let currentMonth = today.getMonth();
     let currentYear = today.getFullYear();
     let data = {};
-    let accessToken = null;
-    let spreadsheetId = null;
-
-    function initAuth() {
-      console.log('Initializing auth...');
-      const tokenClient = google.accounts.oauth2.initTokenClient({
-        client_id: CLIENT_ID,
-        scope: SCOPES,
-        callback: (tokenResponse) => {
-          console.log('Token callback triggered:', tokenResponse);
-          if (tokenResponse.error) {
-            document.getElementById('authStatus').innerText = `Ошибка авторизации: ${tokenResponse.error_description || tokenResponse.error}`;
-            console.error('Auth error:', tokenResponse);
-            return;
-          }
-          accessToken = tokenResponse.access_token;
-          console.log('Access token received:', accessToken);
-          document.getElementById('signInButton').classList.add('hidden');
-          document.getElementById('signOutButton').classList.remove('hidden');
-          document.getElementById('authStatus').innerText = '';
-          initGapi();
-        }
-      });
-      document.getElementById('signInButton').onclick = () => {
-        console.log('Requesting access token...');
-        tokenClient.requestAccessToken({ prompt: 'consent' });
-      };
-      document.getElementById('signOutButton').onclick = () => {
-        console.log('Signing out...');
-        google.accounts.oauth2.revoke(accessToken, () => {
-          accessToken = null;
-          document.getElementById('signInButton').classList.remove('hidden');
-          document.getElementById('signOutButton').classList.add('hidden');
-          document.getElementById('calendar').innerHTML = 'Пожалуйста, войдите через Google.';
-        });
-      };
-    }
-
-    function initGapi() {
-      if (!accessToken) {
-        document.getElementById('authStatus').innerText = 'Токен отсутствует. Повторите вход.';
-        console.error('No access token');
-        return;
-      }
-      console.log('Loading GAPI client...');
-      gapi.load('client', () => {
-        console.log('Initializing GAPI...');
-        gapi.client.init({
-          apiKey: '', // Оставляем пустым, используем access_token
-          discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
-        }).then(() => {
-          console.log('GAPI initialized, setting token:', accessToken);
-          gapi.client.setToken({ access_token: accessToken });
-          createSpreadsheet();
-        }).catch(err => {
-          document.getElementById('authStatus').innerText = `Ошибка инициализации API: ${err.message}`;
-          console.error('GAPI init error:', err);
-        });
-      });
-    }
-
-    function createSpreadsheet() {
-      if (!accessToken) {
-        document.getElementById('authStatus').innerText = 'Токен отсутствует для создания таблицы.';
-        console.error('No token for spreadsheet creation');
-        return;
-      }
-      console.log('Creating spreadsheet...');
-      gapi.client.sheets.spreadsheets.create({
-        properties: { title: 'Activity Tracker ' + new Date().toLocaleDateString() }
-      }).then(response => {
-        spreadsheetId = response.result.spreadsheetId;
-        console.log('Spreadsheet created, ID:', spreadsheetId);
-        const headers = ['Date', ...activities.map(a => a.name)];
-        gapi.client.sheets.spreadsheets.values.update({
-          spreadsheetId: spreadsheetId,
-          range: 'Sheet1!A1',
-          valueInputOption: 'RAW',
-          resource: { values: [headers] }
-        }).then(() => loadData());
-      }).catch(err => {
-        document.getElementById('authStatus').innerText = `Ошибка создания таблицы: ${JSON.stringify(err, null, 2)}`;
-        console.error('Spreadsheet creation error:', err);
-      });
-    }
 
     function loadData() {
-      if (!spreadsheetId) {
-        document.getElementById('authStatus').innerText = 'Таблица не создана.';
-        console.error('No spreadsheet ID');
-        return;
-      }
-      console.log('Loading data from spreadsheet:', spreadsheetId);
-      gapi.client.sheets.spreadsheets.values.get({
-        spreadsheetId: spreadsheetId,
-        range: 'Sheet1!A2:Z1000'
-      }).then(response => {
-        const values = response.result.values || [];
-        data = {};
-        values.forEach(row => {
-          if (row[0]) {
-            const dateKey = row[0];
-            data[dateKey] = row.slice(1).map(v => v ? parseInt(v) : '');
-          }
-        });
+      const ref = database.ref('activityTracker');
+      ref.once('value', snapshot => {
+        data = snapshot.val() || {};
         generateCalendar();
-      }).catch(err => {
-        document.getElementById('authStatus').innerText = `Ошибка загрузки данных: ${err.message}`;
-        console.error('Data load error:', err);
+      }, error => {
+        console.error('Error loading data:', error);
+        data = {};
+        generateCalendar();
       });
     }
 
@@ -173,17 +85,9 @@
       if (!data[dateKey]) data[dateKey] = Array(activities.length).fill('');
       data[dateKey][activityIndex] = value ? parseInt(value) : '';
 
-      const row = [dateKey, ...data[dateKey]];
-      gapi.client.sheets.spreadsheets.values.append({
-        spreadsheetId: spreadsheetId,
-        range: 'Sheet1!A1',
-        valueInputOption: 'RAW',
-        insertDataOption: 'INSERT_ROWS',
-        resource: { values: [row] }
-      }).then(() => updateStats()).catch(err => {
-        document.getElementById('authStatus').innerText = `Ошибка сохранения: ${err.message}`;
-        console.error('Save error:', err);
-      });
+      database.ref(`activityTracker/${dateKey}`).set(data[dateKey])
+        .then(() => updateStats())
+        .catch(error => console.error('Error saving data:', error));
     }
 
     function generateCalendar() {
@@ -341,7 +245,7 @@
         currentMonth = 11;
         currentYear--;
       }
-      generateCalendar();
+      loadData();
     }
 
     function nextMonth() {
@@ -350,18 +254,12 @@
         currentMonth = 0;
         currentYear++;
       }
-      generateCalendar();
+      loadData();
     }
 
+    // Запуск при загрузке
     window.onload = () => {
-      console.log('Window loaded, loading GAPI...');
-      const script = document.createElement('script');
-      script.src = 'https://apis.google.com/js/api.js';
-      script.onload = () => {
-        console.log('GAPI script loaded, initializing auth...');
-        initAuth();
-      };
-      document.body.appendChild(script);
+      loadData();
     };
   </script>
 </body>
