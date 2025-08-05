@@ -1,0 +1,376 @@
+<script type="text/javascript">
+        var gk_isXlsx = false;
+        var gk_xlsxFileLookup = {};
+        var gk_fileData = {};
+        function filledCell(cell) {
+          return cell !== '' && cell != null;
+        }
+        function loadFileData(filename) {
+        if (gk_isXlsx && gk_xlsxFileLookup[filename]) {
+            try {
+                var workbook = XLSX.read(gk_fileData[filename], { type: 'base64' });
+                var firstSheetName = workbook.SheetNames[0];
+                var worksheet = workbook.Sheets[firstSheetName];
+
+                // Convert sheet to JSON to filter blank rows
+                var jsonData = XLSX.utils.sheet_to_json(worksheet, { header: 1, blankrows: false, defval: '' });
+                // Filter out blank rows (rows where all cells are empty, null, or undefined)
+                var filteredData = jsonData.filter(row => row.some(filledCell));
+
+                // Heuristic to find the header row by ignoring rows with fewer filled cells than the next row
+                var headerRowIndex = filteredData.findIndex((row, index) =>
+                  row.filter(filledCell).length >= filteredData[index + 1]?.filter(filledCell).length
+                );
+                // Fallback
+                if (headerRowIndex === -1 || headerRowIndex > 25) {
+                  headerRowIndex = 0;
+                }
+
+                // Convert filtered JSON back to CSV
+                var csv = XLSX.utils.aoa_to_sheet(filteredData.slice(headerRowIndex)); // Create a new sheet from filtered array of arrays
+                csv = XLSX.utils.sheet_to_csv(csv, { header: 1 });
+                return csv;
+            } catch (e) {
+                console.error(e);
+                return "";
+            }
+        }
+        return gk_fileData[filename] || "";
+        }
+        </script><!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Трекер активностей</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.2/dist/chart.min.js"></script>
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body class="bg-gray-100 font-sans">
+  <div class="container mx-auto p-4">
+    <h1 class="text-2xl font-bold text-center mb-4">Ежедневный трекер активностей</h1>
+    <div id="auth" class="mb-4">
+      <button id="signInButton" class="bg-blue-500 text-white px-4 py-2 rounded">Войти через Google</button>
+      <button id="signOutButton" class="bg-red-500 text-white px-4 py-2 rounded hidden">Выйти</button>
+      <div id="authStatus" class="text-red-500 mt-2"></div>
+    </div>
+    <div class="flex justify-between mb-4">
+      <button onclick="exportData()" class="bg-green-500 text-white px-4 py-2 rounded">Экспорт данных</button>
+      <input type="file" id="importFile" accept=".json" onchange="importData()" class="hidden">
+      <label for="importFile" class="bg-green-500 text-white px-4 py-2 rounded cursor-pointer">Импорт данных</label>
+    </div>
+    <div class="overflow-x-auto">
+      <div id="calendar" class="bg-white p-4 rounded shadow"></div>
+    </div>
+    <div id="stats" class="mt-4 bg-white p-4 rounded shadow">
+      <h2 class="text-xl font-semibold mb-2">Статистика</h2>
+      <canvas id="avgChart" class="mb-4"></canvas>
+      <h3 class="text-lg font-semibold mb-2">Недельные итоги</h3>
+      <table id="weeklyTotals" class="w-full border-collapse"></table>
+    </div>
+  </div>
+
+  <script>
+    const CLIENT_ID = '848000441972-vi3g9o2t36ueq4lfieiqqg73j368bq11.apps.googleusercontent.com'; // Твой Client ID
+    const SCOPES = 'https://www.googleapis.com/auth/spreadsheets';
+
+    const activities = [
+      "Холодный душ по методу Вима Хофа",
+      "Мастурбация",
+      "Прослушивание аудиокниг",
+      "Просмотр новостей и соцсетей",
+      "Написание сценария о движении Земли",
+      "Снятие гитарных партий",
+      "Запись кавера для чистой игры",
+      "Занятия с метрономом и развитие ритма",
+      "Сочинение музыки",
+      "Поиск новой музыки",
+      "Обучение ребят",
+      "Просмотр обучающих видео по технике игры",
+      "Занятия вокалом и игра на гитаре (кавера)",
+      "Генерация порно-контента",
+      "Украшение квартиры мангой/плакатами",
+      "Работа",
+      "Глубокое общение на Reddit и поиск единомышленников"
+    ];
+
+    const today = new Date();
+    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+    const dayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+    let currentMonth = today.getMonth();
+    let currentYear = today.getFullYear();
+    let data = {};
+    let tokenClient;
+    let accessToken = null;
+    let spreadsheetId = null;
+
+    function initGoogleAuth() {
+      tokenClient = google.accounts.oauth2.initTokenClient({
+        client_id: CLIENT_ID,
+        scope: SCOPES,
+        callback: (tokenResponse) => {
+          if (tokenResponse.error) {
+            document.getElementById('authStatus').innerText = `Ошибка авторизации: ${tokenResponse.error_description || tokenResponse.error}`;
+            return;
+          }
+          accessToken = tokenResponse.access_token;
+          document.getElementById('signInButton').classList.add('hidden');
+          document.getElementById('signOutButton').classList.remove('hidden');
+          document.getElementById('authStatus').innerText = '';
+          initGapiClient();
+        }
+      });
+      document.getElementById('signInButton').onclick = () => tokenClient.requestAccessToken({ prompt: 'consent' });
+      document.getElementById('signOutButton').onclick = () => {
+        google.accounts.oauth2.revoke(accessToken);
+        accessToken = null;
+        document.getElementById('signInButton').classList.remove('hidden');
+        document.getElementById('signOutButton').classList.add('hidden');
+        document.getElementById('calendar').innerHTML = 'Пожалуйста, войдите через Google.';
+      };
+    }
+
+    function initGapiClient() {
+      gapi.load('client', () => {
+        gapi.client.init({
+          discoveryDocs: ['https://sheets.googleapis.com/$discovery/rest?version=v4'],
+        }).then(() => {
+          createSpreadsheet();
+        }).catch(err => {
+          document.getElementById('authStatus').innerText = `Ошибка инициализации API: ${err.message}`;
+        });
+      });
+    }
+
+    function createSpreadsheet() {
+      gapi.client.sheets.spreadsheets.create({
+        properties: { title: 'Activity Tracker ' + new Date().toLocaleDateString() }
+      }).then(response => {
+        spreadsheetId = response.result.spreadsheetId;
+        console.log('Created Spreadsheet ID:', spreadsheetId);
+        const headers = ['Date', ...activities];
+        gapi.client.sheets.spreadsheets.values.update({
+          spreadsheetId: spreadsheetId,
+          range: 'Sheet1!A1',
+          valueInputOption: 'RAW',
+          resource: { values: [headers] }
+        }).then(() => loadData());
+      }).catch(err => {
+        document.getElementById('authStatus').innerText = `Ошибка создания таблицы: ${err.message}`;
+      });
+    }
+
+    function loadData() {
+      if (!spreadsheetId) {
+        document.getElementById('authStatus').innerText = 'Таблица не создана. Попробуйте снова.';
+        return;
+      }
+      gapi.client.sheets.spreadsheets.values.get({
+        spreadsheetId: spreadsheetId,
+        range: 'Sheet1!A2:Z1000'
+      }).then(response => {
+        const values = response.result.values || [];
+        data = {};
+        values.forEach(row => {
+          if (row[0]) {
+            const dateKey = row[0];
+            data[dateKey] = row.slice(1).map(v => v ? parseInt(v) : '');
+          }
+        });
+        generateCalendar();
+      }).catch(err => {
+        document.getElementById('authStatus').innerText = `Ошибка загрузки данных: ${err.message}`;
+      });
+    }
+
+    function saveScore(day, activityIndex, value) {
+      const dateKey = `${currentYear}-${currentMonth + 1}-${day}`;
+      if (!data[dateKey]) data[dateKey] = Array(activities.length).fill('');
+      data[dateKey][activityIndex] = value ? parseInt(value) : '';
+
+      const row = [dateKey, ...data[dateKey]];
+      gapi.client.sheets.spreadsheets.values.append({
+        spreadsheetId: spreadsheetId,
+        range: 'Sheet1!A1',
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        resource: { values: [row] }
+      }).then(() => updateStats()).catch(err => {
+        document.getElementById('authStatus').innerText = `Ошибка сохранения: ${err.message}`;
+      });
+    }
+
+    function generateCalendar() {
+      const firstDay = new Date(currentYear, currentMonth, 1);
+      const lastDay = new Date(currentYear, currentMonth + 1, 0);
+      const daysInMonth = lastDay.getDate();
+
+      let html = `<h2 class="text-xl font-semibold mb-2">${monthNames[currentMonth]} ${currentYear}</h2>`;
+      html += `<table class="w-full border-collapse"><thead><tr><th class="p-2">Активность</th>`;
+      for (let i = 1; i <= daysInMonth; i++) {
+        const date = new Date(currentYear, currentMonth, i);
+        const dayName = dayNames[date.getDay()];
+        html += `<th class="p-2">${dayName} ${i}</th>`;
+      }
+      html += `</tr></thead><tbody>`;
+
+      activities.forEach((activity, index) => {
+        html += `<tr><td class="p-2 border">${activity}</td>`;
+        for (let i = 1; i <= daysInMonth; i++) {
+          const dateKey = `${currentYear}-${currentMonth + 1}-${i}`;
+          const score = data[dateKey]?.[index] || '';
+          const isToday = i === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+          html += `<td class="p-2 border ${isToday ? 'bg-yellow-100' : ''}">
+            <select onchange="saveScore(${i}, ${index}, this.value)" class="w-16 p-1">
+              <option value="" ${score === '' ? 'selected' : ''}></option>
+              <option value="0" ${score === 0 ? 'selected' : ''}>0</option>
+              <option value="1" ${score === 1 ? 'selected' : ''}>1</option>
+              <option value="2" ${score === 2 ? 'selected' : ''}>2</option>
+            </select>
+          </td>`;
+        }
+        html += `</tr>`;
+      });
+      html += `</tbody></table>`;
+      html += `<div class="mt-4">
+        <button onclick="prevMonth()" class="bg-blue-500 text-white px-4 py-2 rounded mr-2">Предыдущий</button>
+        <button onclick="nextMonth()" class="bg-blue-500 text-white px-4 py-2 rounded">Следующий</button>
+      </div>`;
+      document.getElementById('calendar').innerHTML = html;
+      updateStats();
+    }
+
+    function exportData() {
+      const dataStr = JSON.stringify(data);
+      const blob = new Blob([dataStr], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `activity_data_${currentYear}_${currentMonth + 1}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    function importData() {
+      const input = document.getElementById('importFile');
+      const file = input.files[0];
+      if (file) {
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          try {
+            const importedData = JSON.parse(e.target.result);
+            const values = Object.entries(importedData).map(([date, scores]) => [date, ...scores]);
+            gapi.client.sheets.spreadsheets.values.append({
+              spreadsheetId: spreadsheetId,
+              range: 'Sheet1!A1',
+              valueInputOption: 'RAW',
+              insertDataOption: 'INSERT_ROWS',
+              resource: { values }
+            }).then(() => {
+              data = importedData;
+              generateCalendar();
+            });
+          } catch (err) {
+            document.getElementById('authStatus').innerText = `Ошибка импорта: ${err.message}`;
+          }
+        };
+        reader.readAsText(file);
+      }
+    }
+
+    function updateStats() {
+      let averages = activities.map((_, index) => {
+        let total = 0, count = 0;
+        for (let key in data) {
+          if (key.startsWith(`${currentYear}-${currentMonth + 1}-`) && data[key][index] !== '' && data[key][index] !== undefined) {
+            total += data[key][index];
+            count++;
+          }
+        }
+        return count > 0 ? total / count : 0;
+      });
+
+      const ctx = document.getElementById('avgChart').getContext('2d');
+      new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: activities,
+          datasets: [{
+            label: 'Средний балл',
+            data: averages,
+            backgroundColor: 'rgba(75, 192, 192, 0.5)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 1
+          }]
+        },
+        options: {
+          scales: { y: { beginAtZero: true, max: 2, ticks: { stepSize: 0.5 } } },
+          plugins: { legend: { display: false } }
+        }
+      });
+
+      let weeklyHtml = `<thead><tr><th class="p-2 border">Активность</th>`;
+      const firstDay = new Date(currentYear, currentMonth, 1);
+      const lastDay = new Date(currentYear, currentMonth + 1, 0);
+      const daysInMonth = lastDay.getDate();
+      let weeks = [];
+      let currentWeek = [];
+      for (let i = 1; i <= daysInMonth; i++) {
+        currentWeek.push(i);
+        if (new Date(currentYear, currentMonth, i).getDay() === 6 || i === daysInMonth) {
+          weeks.push(currentWeek);
+          currentWeek = [];
+        }
+      }
+      weeks.forEach((week, idx) => {
+        weeklyHtml += `<th class="p-2 border">Неделя ${idx + 1}</th>`;
+      });
+      weeklyHtml += `</tr></thead><tbody>`;
+
+      activities.forEach((activity, index) => {
+        weeklyHtml += `<tr><td class="p-2 border">${activity}</td>`;
+        weeks.forEach(week => {
+          let total = 0, count = 0;
+          week.forEach(day => {
+            const dateKey = `${currentYear}-${currentMonth + 1}-${day}`;
+            if (data[dateKey] && data[dateKey][index] !== '' && data[dateKey][index] !== undefined) {
+              total += data[dateKey][index];
+              count++;
+            }
+          });
+          weeklyHtml += `<td class="p-2 border">${count > 0 ? total : '-'}</td>`;
+        });
+        weeklyHtml += `</tr>`;
+      });
+      weeklyHtml += `</tbody>`;
+      document.getElementById('weeklyTotals').innerHTML = weeklyHtml;
+    }
+
+    function prevMonth() {
+      currentMonth--;
+      if (currentMonth < 0) {
+        currentMonth = 11;
+        currentYear--;
+      }
+      generateCalendar();
+    }
+
+    function nextMonth() {
+      currentMonth++;
+      if (currentMonth > 11) {
+        currentMonth = 0;
+        currentYear++;
+      }
+      generateCalendar();
+    }
+
+    window.onload = () => {
+      const script = document.createElement('script');
+      script.src = 'https://apis.google.com/js/api.js';
+      script.onload = initGoogleAuth;
+      document.body.appendChild(script);
+    };
+  </script>
+</body>
+</html>
