@@ -13,7 +13,7 @@
   <div class="container mx-auto p-4">
     <h1 class="text-2xl font-bold text-center mb-4">Трекер активностей</h1>
     <div id="auth" class="mb-4">
-      <div id="authStatus" class="text-green-400 mt-2">Онлайн-режим активен</div>
+      <div id="authStatus" class="text-green-400 mt-2">Проверка подключения...</div>
     </div>
     <div class="overflow-x-auto">
       <div id="calendar" class="bg-gray-800 p-4 rounded shadow"></div>
@@ -38,229 +38,244 @@
     };
 
     // Инициализация Firebase
-    firebase.initializeApp(firebaseConfig);
-    const database = firebase.database();
+    try {
+      firebase.initializeApp(firebaseConfig);
+      const database = firebase.database();
+      document.getElementById('authStatus').innerText = 'Подключено к Firebase';
+      console.log('Firebase initialized, database:', database);
 
-    const activities = [
-      { name: "Холодный душ по методу Вима Хофа", category: "Здоровье" },
-      { name: "Мастурбация", category: "Здоровье" },
-      { name: "Прослушивание аудиокниг", category: "Обучение" },
-      { name: "Просмотр новостей и соцсетей", category: "Развлечения" },
-      { name: "Написание сценария о движении Земли", category: "Творчество" },
-      { name: "Снятие гитарных партий", category: "Творчество" },
-      { name: "Запись кавера для чистой игры", category: "Творчество" },
-      { name: "Занятия с метрономом и развитие ритма", category: "Творчество" },
-      { name: "Сочинение музыки", category: "Творчество" },
-      { name: "Поиск новой музыки", category: "Творчество" },
-      { name: "Обучение ребят", category: "Обучение" },
-      { name: "Просмотр обучающих видео по технике игры", category: "Обучение" },
-      { name: "Занятия вокалом и игра на гитаре (кавера)", category: "Творчество" },
-      { name: "Генерация порно-контента", category: "Развлечения" },
-      { name: "Украшение квартиры мангой/плакатами", category: "Развлечения" },
-      { name: "Работа", category: "Работа" },
-      { name: "Глубокое общение на Reddit и поиск единомышленников", category: "Развлечения" }
-    ];
+      const activities = [
+        { name: "Холодный душ по методу Вима Хофа", category: "Здоровье" },
+        { name: "Мастурбация", category: "Здоровье" },
+        { name: "Прослушивание аудиокниг", category: "Обучение" },
+        { name: "Просмотр новостей и соцсетей", category: "Развлечения" },
+        { name: "Написание сценария о движении Земли", category: "Творчество" },
+        { name: "Снятие гитарных партий", category: "Творчество" },
+        { name: "Запись кавера для чистой игры", category: "Творчество" },
+        { name: "Занятия с метрономом и развитие ритма", category: "Творчество" },
+        { name: "Сочинение музыки", category: "Творчество" },
+        { name: "Поиск новой музыки", category: "Творчество" },
+        { name: "Обучение ребят", category: "Обучение" },
+        { name: "Просмотр обучающих видео по технике игры", category: "Обучение" },
+        { name: "Занятия вокалом и игра на гитаре (кавера)", category: "Творчество" },
+        { name: "Генерация порно-контента", category: "Развлечения" },
+        { name: "Украшение квартиры мангой/плакатами", category: "Развлечения" },
+        { name: "Работа", category: "Работа" },
+        { name: "Глубокое общение на Reddit и поиск единомышленников", category: "Развлечения" }
+      ];
 
-    const today = new Date();
-    const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
-    const dayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
-    let currentMonth = today.getMonth();
-    let currentYear = today.getFullYear();
-    let data = {};
+      const today = new Date();
+      const monthNames = ["Январь", "Февраль", "Март", "Апрель", "Май", "Июнь", "Июль", "Август", "Сентябрь", "Октябрь", "Ноябрь", "Декабрь"];
+      const dayNames = ["Вс", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+      let currentMonth = today.getMonth();
+      let currentYear = today.getFullYear();
+      let data = {};
 
-    function loadData() {
-      const ref = database.ref('activityTracker');
-      ref.once('value', snapshot => {
-        data = snapshot.val() || {};
-        generateCalendar();
-      }, error => {
-        console.error('Error loading data:', error);
-        data = {};
-        generateCalendar();
-      });
-    }
-
-    function saveScore(day, activityIndex, value) {
-      const dateKey = `${currentYear}-${currentMonth + 1}-${day}`;
-      if (!data[dateKey]) data[dateKey] = Array(activities.length).fill('');
-      data[dateKey][activityIndex] = value ? parseInt(value) : '';
-
-      database.ref(`activityTracker/${dateKey}`).set(data[dateKey])
-        .then(() => updateStats())
-        .catch(error => console.error('Error saving data:', error));
-    }
-
-    function generateCalendar() {
-      const firstDay = new Date(currentYear, currentMonth, 1);
-      const lastDay = new Date(currentYear, currentMonth + 1, 0);
-      const daysInMonth = lastDay.getDate();
-
-      let html = `<h2 class="text-xl font-semibold mb-2">${monthNames[currentMonth]} ${currentYear}</h2>`;
-      html += `<table class="w-full border-collapse"><thead><tr><th class="p-2">Активность</th>`;
-      for (let i = 1; i <= daysInMonth; i++) {
-        const date = new Date(currentYear, currentMonth, i);
-        const dayName = dayNames[date.getDay()];
-        html += `<th class="p-2">${dayName} ${i}</th>`;
+      function loadData() {
+        console.log('Loading data from Firebase...');
+        const ref = database.ref('activityTracker');
+        ref.once('value', snapshot => {
+          console.log('Data snapshot received:', snapshot.val());
+          data = snapshot.val() || {};
+          generateCalendar();
+        }, error => {
+          console.error('Error loading data:', error);
+          document.getElementById('authStatus').innerText = `Ошибка: ${error.message}`;
+          data = {};
+          generateCalendar();
+        });
       }
-      html += `</tr></thead><tbody>`;
 
-      activities.forEach((activity, index) => {
-        html += `<tr><td class="p-2 border">${activity.name}</td>`;
+      function saveScore(day, activityIndex, value) {
+        const dateKey = `${currentYear}-${currentMonth + 1}-${day}`;
+        if (!data[dateKey]) data[dateKey] = Array(activities.length).fill('');
+        data[dateKey][activityIndex] = value ? parseInt(value) : '';
+
+        console.log('Saving data for', dateKey, data[dateKey]);
+        database.ref(`activityTracker/${dateKey}`).set(data[dateKey])
+          .then(() => {
+            console.log('Data saved successfully');
+            updateStats();
+          })
+          .catch(error => console.error('Error saving data:', error));
+      }
+
+      function generateCalendar() {
+        console.log('Generating calendar for', monthNames[currentMonth], currentYear);
+        const firstDay = new Date(currentYear, currentMonth, 1);
+        const lastDay = new Date(currentYear, currentMonth + 1, 0);
+        const daysInMonth = lastDay.getDate();
+
+        let html = `<h2 class="text-xl font-semibold mb-2">${monthNames[currentMonth]} ${currentYear}</h2>`;
+        html += `<table class="w-full border-collapse"><thead><tr><th class="p-2">Активность</th>`;
         for (let i = 1; i <= daysInMonth; i++) {
-          const dateKey = `${currentYear}-${currentMonth + 1}-${i}`;
-          const score = data[dateKey]?.[index] || '';
-          const isToday = i === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
-          let cellColor = '';
-          if (score === 0) cellColor = 'bg-red-500';
-          else if (score === 1) cellColor = 'bg-green-800';
-          else if (score === 2) cellColor = 'bg-green-300';
-          html += `<td class="p-2 border ${isToday ? 'bg-yellow-800' : ''} ${cellColor}">
-            <select onchange="saveScore(${i}, ${index}, this.value)" class="w-16 p-1 bg-gray-700 text-white">
-              <option value="" ${score === '' ? 'selected' : ''}></option>
-              <option value="0" ${score === 0 ? 'selected' : ''}>0</option>
-              <option value="1" ${score === 1 ? 'selected' : ''}>1</option>
-              <option value="2" ${score === 2 ? 'selected' : ''}>2</option>
-            </select>
-          </td>`;
+          const date = new Date(currentYear, currentMonth, i);
+          const dayName = dayNames[date.getDay()];
+          html += `<th class="p-2">${dayName} ${i}</th>`;
         }
-        html += `</tr>`;
-      });
-      html += `</tbody></table>`;
-      html += `<div class="mt-4">
-        <button onclick="prevMonth()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded mr-2">Предыдущий</button>
-        <button onclick="nextMonth()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Следующий</button>
-      </div>`;
-      document.getElementById('calendar').innerHTML = html;
-      updateStats();
-    }
+        html += `</tr></thead><tbody>`;
 
-    function updateStats() {
-      const categories = {};
-      activities.forEach((a, index) => {
-        if (!categories[a.category]) categories[a.category] = [];
-        categories[a.category].push(index);
-      });
-
-      const firstDay = new Date(currentYear, currentMonth, 1);
-      const lastDay = new Date(currentYear, currentMonth + 1, 0);
-      const daysInMonth = lastDay.getDate();
-      let weeks = [];
-      let currentWeek = [];
-      for (let i = 1; i <= daysInMonth; i++) {
-        currentWeek.push(i);
-        if (new Date(currentYear, currentMonth, i).getDay() === 6 || i === daysInMonth) {
-          weeks.push(currentWeek);
-          currentWeek = [];
-        }
+        activities.forEach((activity, index) => {
+          html += `<tr><td class="p-2 border">${activity.name}</td>`;
+          for (let i = 1; i <= daysInMonth; i++) {
+            const dateKey = `${currentYear}-${currentMonth + 1}-${i}`;
+            const score = data[dateKey]?.[index] || '';
+            const isToday = i === today.getDate() && currentMonth === today.getMonth() && currentYear === today.getFullYear();
+            let cellColor = '';
+            if (score === 0) cellColor = 'bg-red-500';
+            else if (score === 1) cellColor = 'bg-green-800';
+            else if (score === 2) cellColor = 'bg-green-300';
+            html += `<td class="p-2 border ${isToday ? 'bg-yellow-800' : ''} ${cellColor}">
+              <select onchange="saveScore(${i}, ${index}, this.value)" class="w-16 p-1 bg-gray-700 text-white">
+                <option value="" ${score === '' ? 'selected' : ''}></option>
+                <option value="0" ${score === 0 ? 'selected' : ''}>0</option>
+                <option value="1" ${score === 1 ? 'selected' : ''}>1</option>
+                <option value="2" ${score === 2 ? 'selected' : ''}>2</option>
+              </select>
+            </td>`;
+          }
+          html += `</tr>`;
+        });
+        html += `</tbody></table>`;
+        html += `<div class="mt-4">
+          <button onclick="prevMonth()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded mr-2">Предыдущий</button>
+          <button onclick="nextMonth()" class="bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded">Следующий</button>
+        </div>`;
+        document.getElementById('calendar').innerHTML = html;
+        updateStats();
       }
-      const weeklyData = {};
-      weeks.forEach((week, idx) => {
-        weeklyData[`Неделя ${idx + 1}`] = {};
+
+      function updateStats() {
+        const categories = {};
+        activities.forEach((a, index) => {
+          if (!categories[a.category]) categories[a.category] = [];
+          categories[a.category].push(index);
+        });
+
+        const firstDay = new Date(currentYear, currentMonth, 1);
+        const lastDay = new Date(currentYear, currentMonth + 1, 0);
+        const daysInMonth = lastDay.getDate();
+        let weeks = [];
+        let currentWeek = [];
+        for (let i = 1; i <= daysInMonth; i++) {
+          currentWeek.push(i);
+          if (new Date(currentYear, currentMonth, i).getDay() === 6 || i === daysInMonth) {
+            weeks.push(currentWeek);
+            currentWeek = [];
+          }
+        }
+        const weeklyData = {};
+        weeks.forEach((week, idx) => {
+          weeklyData[`Неделя ${idx + 1}`] = {};
+          for (let cat in categories) {
+            weeklyData[`Неделя ${idx + 1}`][cat] = 0;
+            categories[cat].forEach(index => {
+              let total = 0, count = 0;
+              week.forEach(day => {
+                const dateKey = `${currentYear}-${currentMonth + 1}-${day}`;
+                if (data[dateKey] && data[dateKey][index] !== '' && data[dateKey][index] !== undefined) {
+                  total += data[dateKey][index];
+                  count++;
+                }
+              });
+              weeklyData[`Неделя ${idx + 1}`][cat] += count > 0 ? total / count : 0;
+            });
+            weeklyData[`Неделя ${idx + 1}`][cat] /= categories[cat].length || 1;
+          }
+        });
+
+        const monthlyData = {};
         for (let cat in categories) {
-          weeklyData[`Неделя ${idx + 1}`][cat] = 0;
+          monthlyData[cat] = 0;
           categories[cat].forEach(index => {
             let total = 0, count = 0;
-            week.forEach(day => {
-              const dateKey = `${currentYear}-${currentMonth + 1}-${day}`;
-              if (data[dateKey] && data[dateKey][index] !== '' && data[dateKey][index] !== undefined) {
-                total += data[dateKey][index];
+            for (let key in data) {
+              if (key.startsWith(`${currentYear}-${currentMonth + 1}-`) && data[key][index] !== '' && data[key][index] !== undefined) {
+                total += data[key][index];
                 count++;
               }
-            });
-            weeklyData[`Неделя ${idx + 1}`][cat] += count > 0 ? total / count : 0;
-          });
-          weeklyData[`Неделя ${idx + 1}`][cat] /= categories[cat].length || 1;
-        }
-      });
-
-      const monthlyData = {};
-      for (let cat in categories) {
-        monthlyData[cat] = 0;
-        categories[cat].forEach(index => {
-          let total = 0, count = 0;
-          for (let key in data) {
-            if (key.startsWith(`${currentYear}-${currentMonth + 1}-`) && data[key][index] !== '' && data[key][index] !== undefined) {
-              total += data[key][index];
-              count++;
             }
+            monthlyData[cat] += count > 0 ? total / count : 0;
+          });
+          monthlyData[cat] /= categories[cat].length || 1;
+        }
+
+        const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
+        new Chart(weeklyCtx, {
+          type: 'bar',
+          data: {
+            labels: Object.keys(weeklyData),
+            datasets: Object.keys(categories).map(cat => ({
+              label: cat,
+              data: Object.values(weeklyData).map(w => w[cat]),
+              backgroundColor: getCategoryColor(cat),
+              borderColor: getCategoryColor(cat),
+              borderWidth: 1
+            }))
+          },
+          options: {
+            scales: { y: { beginAtZero: true, max: 2, ticks: { stepSize: 0.5 } } },
+            plugins: { legend: { display: true } }
           }
-          monthlyData[cat] += count > 0 ? total / count : 0;
         });
-        monthlyData[cat] /= categories[cat].length || 1;
+
+        const monthlyCtx = document.getElementById('monthlyChart').getContext('2d');
+        new Chart(monthlyCtx, {
+          type: 'bar',
+          data: {
+            labels: Object.keys(monthlyData),
+            datasets: [{
+              label: 'Средний балл',
+              data: Object.values(monthlyData),
+              backgroundColor: Object.keys(monthlyData).map(cat => getCategoryColor(cat)),
+              borderColor: Object.keys(monthlyData).map(cat => getCategoryColor(cat)),
+              borderWidth: 1
+            }]
+          },
+          options: {
+            scales: { y: { beginAtZero: true, max: 2, ticks: { stepSize: 0.5 } } },
+            plugins: { legend: { display: false } }
+          }
+        });
       }
 
-      const weeklyCtx = document.getElementById('weeklyChart').getContext('2d');
-      new Chart(weeklyCtx, {
-        type: 'bar',
-        data: {
-          labels: Object.keys(weeklyData),
-          datasets: Object.keys(categories).map(cat => ({
-            label: cat,
-            data: Object.values(weeklyData).map(w => w[cat]),
-            backgroundColor: getCategoryColor(cat),
-            borderColor: getCategoryColor(cat),
-            borderWidth: 1
-          }))
-        },
-        options: {
-          scales: { y: { beginAtZero: true, max: 2, ticks: { stepSize: 0.5 } } },
-          plugins: { legend: { display: true } }
-        }
-      });
+      function getCategoryColor(category) {
+        const colors = {
+          "Здоровье": "#ef4444",
+          "Обучение": "#8b5cf6",
+          "Творчество": "#f59e0b",
+          "Развлечения": "#10b981",
+          "Работа": "#3b82f6"
+        };
+        return colors[category] || "#d1d5db";
+      }
 
-      const monthlyCtx = document.getElementById('monthlyChart').getContext('2d');
-      new Chart(monthlyCtx, {
-        type: 'bar',
-        data: {
-          labels: Object.keys(monthlyData),
-          datasets: [{
-            label: 'Средний балл',
-            data: Object.values(monthlyData),
-            backgroundColor: Object.keys(monthlyData).map(cat => getCategoryColor(cat)),
-            borderColor: Object.keys(monthlyData).map(cat => getCategoryColor(cat)),
-            borderWidth: 1
-          }]
-        },
-        options: {
-          scales: { y: { beginAtZero: true, max: 2, ticks: { stepSize: 0.5 } } },
-          plugins: { legend: { display: false } }
+      function prevMonth() {
+        currentMonth--;
+        if (currentMonth < 0) {
+          currentMonth = 11;
+          currentYear--;
         }
-      });
-    }
+        loadData();
+      }
 
-    function getCategoryColor(category) {
-      const colors = {
-        "Здоровье": "#ef4444",
-        "Обучение": "#8b5cf6",
-        "Творчество": "#f59e0b",
-        "Развлечения": "#10b981",
-        "Работа": "#3b82f6"
+      function nextMonth() {
+        currentMonth++;
+        if (currentMonth > 11) {
+          currentMonth = 0;
+          currentYear++;
+        }
+        loadData();
+      }
+
+      // Запуск при загрузке
+      window.onload = () => {
+        loadData();
       };
-      return colors[category] || "#d1d5db";
+    } catch (error) {
+      console.error('Firebase initialization failed:', error);
+      document.getElementById('authStatus').innerText = 'Ошибка подключения к Firebase';
     }
-
-    function prevMonth() {
-      currentMonth--;
-      if (currentMonth < 0) {
-        currentMonth = 11;
-        currentYear--;
-      }
-      loadData();
-    }
-
-    function nextMonth() {
-      currentMonth++;
-      if (currentMonth > 11) {
-        currentMonth = 0;
-        currentYear++;
-      }
-      loadData();
-    }
-
-    // Запуск при загрузке
-    window.onload = () => {
-      loadData();
-    };
   </script>
 </body>
 </html>
